@@ -17,6 +17,8 @@
     "graphql": "^16.10.0",
     "react": "18.3.1",
     "react-native": "0.76.7",
+    "react-native-dotenv": "^3.4.11",
+    "react-native-network-info": "^5.2.1",
     "react-native-ssl-pinning": "^1.5.8"
   },
   "devDependencies": {

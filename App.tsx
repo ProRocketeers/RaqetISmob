@@ -1,8 +1,15 @@
 // App.tsx
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { ApolloProvider, gql, useQuery } from '@apollo/client';
 import { View, Text, FlatList, ActivityIndicator, StyleSheet } from 'react-native';
-import client from './ApolloClient';
+import createApolloClient from './ApolloClient';
+import CONFIG from './tsconfig';
+
+// Funkce pro získání IP backendu
+async function getBackendIP(): Promise<string> {
+    console.log(`🔍 Použití konfigurační URL: ${CONFIG.BACKEND_URL}`);
+    return CONFIG.BACKEND_URL;
+}
 
 // GraphQL dotaz podle schématu z RaqetIS
 const GET_EXPERTS = gql`
@@ -80,6 +87,21 @@ const ExpertsList: React.FC = () => {
 };
 
 export default function App() {
+    const [client, setClient] = useState<any>(null);
+
+    useEffect(() => {
+        async function initClient() {
+            const backendURL = await getBackendIP();
+            const apolloClient = await createApolloClient(backendURL);
+            setClient(apolloClient);
+        }
+        initClient();
+    }, []);
+
+    if (!client) {
+        return <Text style={styles.loading}>Načítání...</Text>;
+    }
+
     return (
         <ApolloProvider client={client}>
             <View style={styles.container}>
@@ -126,5 +148,10 @@ const styles = StyleSheet.create({
                                      error: {
                                          color: 'red',
                                          textAlign: 'center',
+                                     },
+                                     loading: {
+                                         textAlign: 'center',
+                                         fontSize: 18,
+                                         marginTop: 50,
                                      },
                                  });

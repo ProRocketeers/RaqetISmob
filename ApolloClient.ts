@@ -1,60 +1,70 @@
-// ApolloClient.ts
 import { ApolloClient, InMemoryCache, ApolloLink, HttpLink } from '@apollo/client';
 import { onError } from '@apollo/client/link/error';
-import { fetch as sslPinnedFetch, ReactNativeSSLPinning } from 'react-native-ssl-pinning';
+import { fetch as sslPinnedFetch } from 'react-native-ssl-pinning';
+import { NetworkInfo } from "react-native-network-info";
 
-// Logger middleware (loguje requesty i response)
-const loggerLink = new ApolloLink((operation, forward) => {
-    console.log(`[GraphQL Request]: ${operation.operationName}`, operation.variables);
+// Funkce pro získání backendové IP adresy
+async function getBackendIP(): Promise<string> {
+    const ip = await NetworkInfo.getGatewayIPAddress();
+    console.log(`🔍 Detekovaná IP adresa backendu: ${ip}`);
+    return ip || "192.168.77.151"; // Záloha na pevnou IP
+}
 
-    return forward(operation).map((response) => {
-        console.log(`[GraphQL Response]: ${operation.operationName}`, response);
-        return response;
-    });
-});
+// Funkce pro vytvoření Apollo klienta
+async function createApolloClient() {
+    const backendIP = await getBackendIP();
 
-// Middleware pro zachycení a logování chyb
-const errorLink = onError(({ graphQLErrors, networkError }) => {
-    if (graphQLErrors) {
-        graphQLErrors.forEach(({ message, locations, path }) =>
-                                  console.error(`[GraphQL Error]: Message: ${message}, Location: ${locations}, Path: ${path}`)
-        );
-    }
+    // SSL Pinning fetch kompatibilní s Apollo
+    const fetchWithSSLPinning = (uri: RequestInfo | URL, options?: RequestInit): Promise<Response> => {
+        return sslPinnedFetch(uri.toString(), {
+            method: options?.method as 'GET' | 'POST' | 'PUT' | 'DELETE',
+            body: options?.body as string,
+            headers: options?.headers as Record<string, string>,
+            sslPinning: {
+                certs: ['keystore'], // bez přípony ".cer"
+            },
+            timeoutInterval: 10000,
+        }).then((response: any) => {
+            return new Response(response.bodyString, {
+                status: response.status,
+                headers: response.headers,
+            });
+        });
+    };
 
-    if (networkError) {
-        console.error(`[Network Error]: ${networkError}`);
-    }
-});
+    // HTTP link s SSL pinningem
+    const httpLink = new HttpLink({
+                                      uri: `https://${backendIP}:8443/graphql`,
+                                      fetch: fetchWithSSLPinning,
+                                  });
 
-// fetch s SSL pinningem (správně přetypované)
-const fetchWithSSLPinning = (uri: RequestInfo | URL, options?: RequestInit): Promise<Response> => {
-    const uriString = uri.toString();
-    return sslPinnedFetch(uriString, {
-        method: options?.method as 'GET' | 'POST' | 'PUT' | 'DELETE' | undefined,
-        body: options?.body as string,
-        headers: options?.headers as Record<string, string>,
-        sslPinning: {
-            certs: ['keystore.p12'], // certifikát 'cert.cer' v Resources (iOS) nebo assets (Android)
-        },
-        timeoutInterval: 10000,
-    }).then((response: ReactNativeSSLPinning.Response) => {
-        return new Response(response.bodyString, {
-            status: response.status,
-            headers: response.headers,
+    // Logger middleware – loguje requesty i response
+    const loggerLink = new ApolloLink((operation, forward) => {
+        console.log(`[GraphQL Request]: ${operation.operationName}`, operation.variables);
+        return forward(operation).map(response => {
+            console.log(`[GraphQL Response]: ${operation.operationName}`, response);
+            return response;
         });
     });
-};
 
-// HTTP link s SSL pinningem
-const httpLink = new HttpLink({
-                                  uri: 'https://192.168.77.151:8443/graphql',
-                                  fetch: fetchWithSSLPinning,
-                              });
+    // Middleware pro zachycení a logování chyb
+    const errorLink = onError(({ graphQLErrors, networkError }) => {
+        if (graphQLErrors) {
+            graphQLErrors.forEach(({ message, locations, path }) =>
+                                      console.error(`[GraphQL Error]: Message: ${message}, Location: ${locations}, Path: ${path}`)
+            );
+        }
+        if (networkError) {
+            console.error(`[Network Error]: ${networkError}`);
+        }
+    });
 
-// Apollo Client s middleware
-const client = new ApolloClient({
-                                    link: ApolloLink.from([loggerLink, errorLink, httpLink]),
-                                    cache: new InMemoryCache(),
-                                });
+    // Vytvoření Apollo klienta
+    return new ApolloClient({
+                                link: ApolloLink.from([loggerLink, errorLink, httpLink]),
+                                cache: new InMemoryCache(),
+                            });
+}
 
-export default client;
+// Exportujeme promise, který bude vracet Apollo klienta
+export default createApolloClient;
